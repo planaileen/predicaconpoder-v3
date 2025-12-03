@@ -59,6 +59,13 @@ const sections: Section[] = [
     href: "/biblia",
     gradient: "from-red-500 to-orange-600",
   },
+  {
+  title: "Ventas de Comida",
+  desc: "Registra clientes, ventas y calcula ganancias.",
+  icon: "🍽️",
+  href: "/ventas-comida",
+  gradient: "from-teal-500 to-cyan-600",
+},
    {
     title: "Ajustes",
     desc: "Configura tu cuenta y preferencias.",
