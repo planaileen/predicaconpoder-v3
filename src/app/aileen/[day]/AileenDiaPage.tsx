@@ -32,6 +32,7 @@ export default function AileenDiaPage({ params }: { params: { day: string } }) {
   const [error, setError] = useState("");
   const [tema, setTema] = useState<"mujer" | "hombre">("hombre");
 
+  // ⭐ ESTOS SON LOS DATOS DE LA CALIFICACIÓN
   const [nota, setNota] = useState<number | null>(null);
   const [comentarioPadre, setComentarioPadre] = useState("");
 
@@ -62,30 +63,16 @@ export default function AileenDiaPage({ params }: { params: { day: string } }) {
   }, [router]);
 
   // ==================================================
-  // 🕒 Calcular estado del día según FECHA Y HORA
+  // 🕒 Calcular estado del día
   // ==================================================
   useEffect(() => {
-    // Ahora (se asume equipo configurado a hora correcta; en tu caso, Quito)
     const ahora = new Date();
-
-    // Fecha base del día 1 del plan
-    const base = new Date(
-      PLAN_START_YEAR,
-      PLAN_START_MONTH_INDEX,
-      PLAN_START_DAY + (dayNum - 1), // día N
-      0,
-      0,
-      0,
-      0
-    );
 
     const apertura = new Date(
       PLAN_START_YEAR,
       PLAN_START_MONTH_INDEX,
       PLAN_START_DAY + (dayNum - 1),
       5,
-      0,
-      0,
       0
     );
 
@@ -95,29 +82,21 @@ export default function AileenDiaPage({ params }: { params: { day: string } }) {
       PLAN_START_DAY + (dayNum - 1),
       23,
       59,
-      59,
-      999
+      59
     );
 
-    if (ahora < apertura) {
-      // Día FUTURO → bloqueado
-      setEstadoDia("bloqueado");
-    } else if (ahora >= apertura && ahora <= cierre) {
-      // Ventana del día → activo (puede escribir)
-      setEstadoDia("activo");
-    } else if (ahora > cierre) {
-      // Día pasado → solo lectura, NO puede editar
-      setEstadoDia("soloLectura");
-    }
+    if (ahora < apertura) setEstadoDia("bloqueado");
+    else if (ahora >= apertura && ahora <= cierre) setEstadoDia("activo");
+    else setEstadoDia("soloLectura");
   }, [dayNum]);
 
   // ==================================================
-  // 📄 Cargar PDF + título + nota/comentario
+  // 📄 Cargar PDF + respuestas + calificación
   // ==================================================
   useEffect(() => {
     const cargarDatos = async () => {
       try {
-        // PDF + título
+        // PDF
         const refDia = doc(db, "planAileen_pdfs", `dia-${day}`);
         const snapDia = await getDoc(refDia);
 
@@ -125,10 +104,8 @@ export default function AileenDiaPage({ params }: { params: { day: string } }) {
           const data = snapDia.data();
           setTitulo(data.titulo || "");
 
-          if (data.url) {
-            setPdfUrl(data.url);
-          } else {
-            // Intento directo a Storage si no hay url en Firestore
+          if (data.url) setPdfUrl(data.url);
+          else {
             try {
               const storageRef = ref(storage, `planAileen/pdfs/dia-${day}.pdf`);
               const url = await getDownloadURL(storageRef);
@@ -139,17 +116,15 @@ export default function AileenDiaPage({ params }: { params: { day: string } }) {
           }
         }
 
-        // Nota / comentario
         const user = auth.currentUser;
         if (user) {
+          // 📝 LEER RESPUESTAS ANTERIORES
           const refResp = doc(db, "aileen_respuestas", `${user.uid}_dia_${day}`);
           const snapResp = await getDoc(refResp);
 
           if (snapResp.exists()) {
             const d = snapResp.data();
-            setNota(d.nota ?? null);
-            setComentarioPadre(d.comentarioPadre ?? "");
-            // Si quieres que vea lo que escribió antes:
+
             if (Array.isArray(d.respuestas)) {
               setAnswers({
                 p1: d.respuestas[0] || "",
@@ -158,6 +133,20 @@ export default function AileenDiaPage({ params }: { params: { day: string } }) {
                 p4: d.respuestas[3] || "",
               });
             }
+          }
+
+          // ⭐ LEER CALIFICACIÓN REAL DESDE LA COLECCIÓN CORRECTA
+          const refCal = doc(
+            db,
+            "aileen_calificaciones",
+            `${user.uid}_dia_${day}`
+          );
+          const snapCal = await getDoc(refCal);
+
+          if (snapCal.exists()) {
+            const c = snapCal.data();
+            setNota(c.nota ?? null);
+            setComentarioPadre(c.comentario ?? "");
           }
         }
       } catch (err) {
@@ -171,7 +160,7 @@ export default function AileenDiaPage({ params }: { params: { day: string } }) {
   }, [day]);
 
   // ==================================================
-  // 🚫 Bloquear copiar / pegar
+  // 🚫 Bloquear copiar/pegar
   // ==================================================
   const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     e.preventDefault();
@@ -179,7 +168,7 @@ export default function AileenDiaPage({ params }: { params: { day: string } }) {
   };
 
   // ==================================================
-  // 📨 Guardar respuestas (solo cuando está ACTIVO)
+  // 📨 Guardar respuestas
   // ==================================================
   const submitAnswers = async () => {
     if (estadoDia !== "activo") {
@@ -192,7 +181,6 @@ export default function AileenDiaPage({ params }: { params: { day: string } }) {
     const minWords = 50;
     for (const key in answers) {
       const words = answers[key as keyof typeof answers].trim().split(/\s+/);
-
       if (words.length < minWords) {
         setError("Cada respuesta debe tener al menos 50 palabras.");
         return;
@@ -235,8 +223,10 @@ export default function AileenDiaPage({ params }: { params: { day: string } }) {
   const titleColor = `text-${color}-300`;
   const btnBg = `bg-${color}-600 hover:bg-${color}-500`;
 
+  const soloLectura = estadoDia === "soloLectura";
+
   // ==================================================
-  // ⏳ VISTA BLOQUEADA (DÍA FUTURO)
+  // VISTA BLOQUEADA
   // ==================================================
   if (estadoDia === "bloqueado") {
     return (
@@ -247,10 +237,6 @@ export default function AileenDiaPage({ params }: { params: { day: string } }) {
         <p className="text-neutral-200 text-lg text-center mb-2">
           No te afanes… es día por día.
         </p>
-        <p className="text-neutral-400 text-sm text-center">
-          Este día aún no está disponible.
-        </p>
-
         <button
           onClick={() => router.push("/aileen")}
           className="mt-6 px-4 py-2 bg-neutral-800 border border-neutral-600 rounded-lg hover:bg-neutral-700"
@@ -261,15 +247,12 @@ export default function AileenDiaPage({ params }: { params: { day: string } }) {
     );
   }
 
-  const soloLectura = estadoDia === "soloLectura";
-
   // ==================================================
-  // 🧾 VISTA NORMAL (ACTIVO o SOLO LECTURA)
+  // VISTA NORMAL (ACTIVO O SOLO LECTURA)
   // ==================================================
   return (
     <main className="min-h-screen bg-neutral-950 text-white px-4 py-6 flex justify-center">
       <div className="w-full max-w-3xl">
-        {/* Botón regresar */}
         <button
           onClick={() => router.push("/aileen")}
           className={`mb-4 px-4 py-2 bg-neutral-800 rounded-xl border ${borde} ${bgh} transition`}
@@ -281,10 +264,13 @@ export default function AileenDiaPage({ params }: { params: { day: string } }) {
           Día {day} {soloLectura && "(solo lectura)"}
         </h1>
 
-        {/* Nota / comentario si existen */}
-        {nota != null && (
+        {/* ⭐ MOSTRAR CALIFICACIÓN SI EXISTE */}
+        {nota !== null && (
           <div className="mb-6 p-4 bg-neutral-900 border border-green-500 rounded-xl">
-            <p className="text-green-400 text-lg font-bold">Nota: {nota}/10</p>
+            <p className="text-green-400 text-lg font-bold">
+              ✔ Nota: {nota}/10
+            </p>
+
             {comentarioPadre && (
               <p className="text-neutral-300 mt-2">
                 <strong>Comentario:</strong> {comentarioPadre}
@@ -293,7 +279,7 @@ export default function AileenDiaPage({ params }: { params: { day: string } }) {
           </div>
         )}
 
-        {/* PDF + título */}
+        {/* PDF */}
         <div className={`bg-neutral-900 border ${borde} rounded-xl p-4 mb-6`}>
           <h2 className="text-lg font-semibold mb-3">Capítulo del día</h2>
 
@@ -308,9 +294,7 @@ export default function AileenDiaPage({ params }: { params: { day: string } }) {
               />
             </>
           ) : (
-            <p className="text-red-400 text-sm">
-              No hay PDF para este día.
-            </p>
+            <p className="text-red-400 text-sm">No hay PDF para este día.</p>
           )}
         </div>
 
@@ -374,7 +358,7 @@ export default function AileenDiaPage({ params }: { params: { day: string } }) {
 }
 
 // ==================================================
-// 🧩 Componente Pregunta con contador de palabras
+// 🧩 Componente Pregunta
 // ==================================================
 function Pregunta({
   label,
@@ -407,7 +391,9 @@ function Pregunta({
       />
       <p className="text-xs text-neutral-400 mt-1">
         Palabras:{" "}
-        <span className={wordCount >= 50 ? "text-green-400" : "text-red-400"}>
+        <span
+          className={wordCount >= 50 ? "text-green-400" : "text-red-400"}
+        >
           {wordCount}
         </span>{" "}
         / 50
